@@ -1,0 +1,135 @@
+---
+title: "Stat Consulting EDA"
+author: "Ephraim Romesberg"
+date: "2/4/2023"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+LavaFlow <- read.csv("~/Downloads/XRF_WesternColumbiaRiverGorgeCRBG.csv")
+repeats=LavaFlow$AlternateSampleID!="null"
+library(MASS)
+library(grt)
+library(VGAM)
+library(ggplot2)
+library(forcats)
+```
+
+
+```{r}
+#checking how many NA's in each column
+noNA=sapply(colnames(LavaFlow),function(x){sum(is.na(LavaFlow[x]))})
+Lavaflow1=LavaFlow[,noNA==0]
+View(Lavaflow1)
+#removing repeated samples
+Lavaflow1=Lavaflow1[Lavaflow1$AlternateSampleID=="null",]
+#names of predictors used
+predictors1=colnames(Lavaflow1)[4:25]
+#data matrix of predictors
+Lavaflow1.X=Lavaflow1[,predictors1]
+sigma1=cov(Lavaflow1.X)
+pca1=eigen(sigma1)
+
+#portion of total variance explained by first k principal components 
+round(cumsum(pca1$values)/sum(pca1$values),5)
+bp=barplot(names.arg=as.character(1:5),height=(cumsum(pca1$values)/sum(pca1$values))[1:5],ylim = c(0,1),xlab = "k",col = "red")
+title(main="Portion of total variance explained by first k principal components")
+text(bp,round(cumsum(pca1$values)/sum(pca1$values),3)[1:5]/2,labels=round(cumsum(pca1$values)/sum(pca1$values),3)[1:5])
+
+#Correlation of principal components with variables:
+r.pca1=diag(sqrt(pca1$values))%*%t(pca1$vectors)%*%diag(1/sqrt(diag(sigma1)))
+colnames(r.pca1)=colnames(sigma1)
+round(r.pca1[1:5,],3)
+
+#First two principal components of data
+pca.2=data.frame(data.matrix(Lavaflow1.X)%*%pca1$vectors[,1:2])
+pca.2$MapUnit=Lavaflow1$MapUnit
+ggplot(pca.2,aes(x=X1,y=X2,color=MapUnit))+geom_point()
+```
+
+
+```{r}
+table(Lavaflow1$MapUnit)
+#Some groups only have one observation
+
+#Linear Discriminant Analysis
+lda1=lda(x=Lavaflow1.X,grouping=Lavaflow1$MapUnit,prior=rep(1/22,22))
+lda1.cv=lda(x=Lavaflow1.X,grouping=Lavaflow1$MapUnit,prior=rep(1/22,22),CV=TRUE)
+table(lda1.cv$class,Lavaflow1$MapUnit)
+#portion of accurately classified observations 
+sum(diag(table(lda1.cv$class,Lavaflow1$MapUnit)))/sum(table(lda1.cv$class,Lavaflow1$MapUnit))
+
+#First two discriminants of data
+discrim2=data.frame(data.matrix(Lavaflow1.X)%*%lda1$scaling[,1:2])
+discrim2$MapUnit=Lavaflow1$MapUnit
+dmeans=data.frame(lda1$means%*%lda1$scaling[,1:2])
+ggplot(data=discrim2,aes(x=LD1,y=LD2))+geom_point(aes(color=MapUnit))+geom_text(data=dmeans,aes(x=LD1,y=LD2,label=1:22))+labs(title="First two linear discriminants of data")
+
+#Correlation of discriminants with variables:
+cor(data.frame(data.matrix(Lavaflow1.X)%*%lda1$scaling[,1:2]),Lavaflow1.X)
+```
+
+```{r}
+#combining Tggc with Tggc-h and Tgo with Tgo-h
+Lavaflow2=Lavaflow1
+Lavaflow2$MapUnit=fct_collapse(Lavaflow2$MapUnit,Tggc2=c("Tggc","Tggc-h"),Tgo2=c("Tgo","Tgo-h"))
+table(Lavaflow2$MapUnit)
+#deleting groups which have less than 5 observations
+lev=levels(Lavaflow2$MapUnit)[table(Lavaflow2$MapUnit)<5]
+Lavaflow2=Lavaflow2[!(Lavaflow2$MapUnit%in%lev),]
+Lavaflow2$MapUnit=factor(Lavaflow2$MapUnit)
+#Now we have 16 total groups
+table(Lavaflow2$MapUnit)
+#data matrix of predictors
+Lavaflow2.X=Lavaflow2[,predictors1]
+```
+
+
+```{r}
+#Linear Discriminant Analysis using Lavaflow2 (no groups with less than 5 observations/combined Tggc with Tggc-h and Tgo with Tgo-h)
+lda2=lda(x=Lavaflow2.X,grouping=Lavaflow2$MapUnit,prior=rep(1/16,16))
+lda2.cv=lda(x=Lavaflow2.X,grouping=Lavaflow2$MapUnit,prior=rep(1/16,16),CV=TRUE)
+table(lda2.cv$class,Lavaflow2$MapUnit)
+
+#portion of accurately classified observations 
+sum(diag(table(lda2.cv$class,Lavaflow2$MapUnit)))/sum(table(lda2.cv$class,Lavaflow2$MapUnit))
+
+#First two discriminants of data
+discrim22=data.frame(data.matrix(Lavaflow2.X)%*%lda2$scaling[,1:2])
+discrim22$MapUnit=Lavaflow2$MapUnit
+dmeans2=data.frame(lda2$means%*%lda2$scaling[,1:2])
+ggplot(data=discrim22,aes(x=LD1,y=LD2))+geom_point(aes(color=MapUnit))+geom_text(data=dmeans2,aes(x=LD1,y=LD2,label=1:16))+labs(title="First two linear discriminants of data")
+
+#Correlation of discriminants with variables:
+cor(data.frame(data.matrix(Lavaflow2.X)%*%lda2$scaling[,1:2]),Lavaflow2.X)
+
+```
+
+```{r}
+#standardizing
+Lavaflow2.X=data.frame(scale(Lavaflow2.X))
+```
+
+
+```{r}
+#PCA using Standardized Lavaflow2
+sigma2=cov(Lavaflow2.X)
+pca2=eigen(sigma2)
+
+#portion of total variance explained by first k principal components 
+round(cumsum(pca2$values)/sum(pca2$values),5)
+bp=barplot(names.arg=as.character(1:6),height=(cumsum(pca2$values)/sum(pca2$values))[1:6],ylim = c(0,1),xlab = "k",col = "red")
+title(main="Portion of total variance explained by first k principal components")
+text(bp,round(cumsum(pca2$values)/sum(pca2$values),3)[1:6]/2,labels=round(cumsum(pca2$values)/sum(pca2$values),3)[1:6])
+
+#Correlation of principal components with variables:
+r.pca2=diag(sqrt(pca2$values))%*%t(pca2$vectors)%*%diag(1/sqrt(diag(sigma2)))
+colnames(r.pca2)=colnames(sigma2)
+round(r.pca2[1:6,],3)
+
+#First two principal components of data
+pca.22=data.frame(data.matrix(Lavaflow2.X)%*%pca2$vectors[,1:2])
+pca.22$MapUnit=Lavaflow2$MapUnit
+ggplot(pca.22,aes(x=X1,y=X2,color=MapUnit))+geom_point()
+```
